@@ -89,7 +89,7 @@ class FreeSpeechToText:
             os.unlink(tmp_path)
             
             # Convert language code (whisper returns full names)
-            detected_lang = result.get("language", "en")
+            # detected_lang = result.get("language", "en")
             # Map back to short codes
             # lang_code = "en"
             # for code, name in self.language_codes.items():

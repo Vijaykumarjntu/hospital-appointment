@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, Response, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from contextlib import asynccontextmanager
@@ -71,6 +71,10 @@ async def health_check():
         "tts": "coqui (local)"
     }
 
+# Add this endpoint to handle favicon requests
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)  # No content
 
 # ========== FREE VOICE ENDPOINTS ==========
 
