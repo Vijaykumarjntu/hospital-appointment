@@ -14,3 +14,29 @@ redis==5.0.1
 # Utils
 python-dateutil==2.8.2
 pytz==2023.3
+numpy==1.24.3
+
+# Voice & Telephony
+twilio==8.10.0
+assemblyai==0.20.0  # For STT (supports Hindi, Tamil)
+google-cloud-texttospeech==2.14.1  # For TTS (multiple languages)
+pydub==0.25.1  # Audio processing
+python-multipart==0.0.6  # For handling audio files
+
+
+# Voice - FREE OPEN SOURCE!
+faster-whisper==0.10.0  
+#openai-whisper==20231117  # OpenAI's Whisper (STT) - runs locally
+coqui-tts==0.22.0         # Coqui TTS - runs locally
+soundfile==0.12.1         # Audio processing
+pydub==0.25.1             # Audio manipulation
+torch==2.1.0              # For Whisper and Coqui
+torchaudio==2.1.0
+
+# SIP/Telephony (if you want real calls)
+# python-sipsimple  # For SIP calls (optional)
+
+
+# HTTP Requests
+httpx==0.25.2
+requests==2.31.0

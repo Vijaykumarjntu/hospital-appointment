@@ -6,6 +6,10 @@ from contextlib import asynccontextmanager
 from src.config import settings
 from src.database.connection import init_db, close_db, get_db, redis_client
 from src.database.models import Patient, Doctor
+from src.voice.free_voice_handler import FreeVoiceHandler
+
+# Initialize free voice handler
+voice_handler = FreeVoiceHandler()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,7 +38,12 @@ app = FastAPI(
 async def root():
     return {
         "message": f"Welcome to {settings.APP_NAME}",
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
+        "voice_endpoints": {
+            "websocket": "/ws/voice (for real-time audio)",
+            "webhook": "/voice/webhook (for SIP integration)",
+            "test_page": "/voice/test (browser testing)"
+        }
     }
 
 @app.get("/health")
@@ -57,9 +66,118 @@ async def health_check():
     return {
         "status": "ok",
         "database": db_status,
-        "redis": redis_status
+        "redis": redis_status,
+        "stt": "whisper (local)",
+        "tts": "coqui (local)"
     }
 
+
+# ========== FREE VOICE ENDPOINTS ==========
+
+@app.websocket("/ws/voice")
+async def voice_websocket(websocket: WebSocket):
+    """WebSocket endpoint for real-time voice"""
+    await voice_handler.handle_websocket(websocket)
+
+@app.post("/voice/webhook")
+async def voice_webhook(request: Request):
+    """Webhook endpoint for SIP integration"""
+    return await voice_handler.handle_webhook(request)
+
+@app.get("/voice/test")
+async def voice_test_page():
+    """Simple test page for voice in browser"""
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Voice Agent Test</title>
+        <style>
+            body { font-family: Arial; padding: 20px; }
+            button { padding: 10px; margin: 5px; }
+            #status { margin: 10px 0; padding: 10px; background: #f0f0f0; }
+            #response { margin: 10px 0; padding: 10px; border: 1px solid #ccc; min-height: 50px; }
+        </style>
+    </head>
+    <body>
+        <h1>🎤 Voice Agent Test (100% Open Source)</h1>
+        
+        <div id="status">Disconnected</div>
+        
+        <button onclick="connect()">Connect</button>
+        <button onclick="startRecording()" disabled id="recordBtn">Start Recording</button>
+        <button onclick="stopRecording()" disabled id="stopBtn">Stop Recording</button>
+        
+        <div id="response"></div>
+        <script>
+            let ws = null;
+            let mediaRecorder = null;
+            let audioChunks = [];
+            
+            function connect() {
+                ws = new WebSocket("ws://localhost:8000/ws/voice");
+                
+                ws.onopen = () => {
+                    document.getElementById("status").innerHTML = "✅ Connected";
+                    document.getElementById("recordBtn").disabled = false;
+                };
+                 ws.onmessage = (event) => {
+                    // Play received audio
+                    const audioBlob = new Blob([event.data], { type: 'audio/wav' });
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
+                    audio.play();
+                    
+                    document.getElementById("response").innerHTML += "<br>🔊 Got response";
+                };
+                
+                ws.onclose = () => {
+                    document.getElementById("status").innerHTML = "❌ Disconnected";
+                    document.getElementById("recordBtn").disabled = true;
+                    document.getElementById("stopBtn").disabled = true;
+                };
+                }
+            
+            function startRecording() {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.ondataavailable = event => {
+                            audioChunks.push(event.data);
+                        };
+                        
+                        mediaRecorder.onstop = () => {
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                            audioChunks = [];
+
+                              // Send to server
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                ws.send(reader.result);
+                            };
+                            reader.readAsArrayBuffer(audioBlob);
+                        };
+                        
+                        mediaRecorder.start();
+                        
+                        document.getElementById("recordBtn").disabled = true;
+                        document.getElementById("stopBtn").disabled = false;
+                    });
+            }
+             function stopRecording() {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                
+                document.getElementById("recordBtn").disabled = false;
+                document.getElementById("stopBtn").disabled = true;
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return Response(content=html, media_type="text/html")
+
+    
 @app.get("/patients")
 async def get_patients(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Patient))

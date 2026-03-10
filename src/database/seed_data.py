@@ -7,7 +7,7 @@ from src.database.models import (
     Patient, Doctor, DoctorSchedule, 
     Appointment, TimeSlot
 )
-from src.database.connection import AsyncSessionLocal
+from src.database.connection import AsyncSessionLocal,init_db
 
 async def seed_doctors(session: AsyncSession):
     """Seed doctor data"""
@@ -187,6 +187,7 @@ async def seed_time_slots(session: AsyncSession, doctors, days_ahead=14):
 
 async def seed_all():
     """Run all seed functions"""
+    await init_db()
     async with AsyncSessionLocal() as session:
         # Clear existing data (optional - careful in production!)
         # await session.execute("TRUNCATE TABLE time_slots, appointments, doctor_schedules, doctors, patients CASCADE")

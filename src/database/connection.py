@@ -41,7 +41,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db():
     """Create tables"""
     async with engine.begin() as conn:
-        await conn.run_sync(Base.mdata.create_all)
+        await conn.run_sync(Base.metadata.create_all)
     
     print("✅ Database tables created successfully!")
 
