@@ -77,11 +77,74 @@ async def favicon():
     return Response(status_code=204)  # No content
 
 # ========== FREE VOICE ENDPOINTS ==========
-
 @app.websocket("/ws/voice")
 async def voice_websocket(websocket: WebSocket):
-    """WebSocket endpoint for real-time voice"""
-    await voice_handler.handle_websocket(websocket)
+    """WebSocket endpoint for real-time voice with LLM"""
+    await websocket.accept()
+    session_id = str(id(websocket))
+    
+    # Initialize session with patient ID (you'd get this from caller ID in production)
+    voice_handler.active_sessions[session_id] = {
+        "state": "greeting",
+        "language": "en",
+        "context": {},
+        "patient_id": 1,  # Default patient for testing
+        "websocket": websocket
+    }
+    
+    print(f"✅ WebSocket connected: {session_id}")
+    
+    try:
+        # Send welcome message
+        welcome = await voice_handler.llm.generate_response(
+            "hello", 
+            "greeting", 
+            {}, 
+            language="en"
+        )
+        # audio_response = await voice_handler.tts.synthesize(welcome, language="en")
+        audio_response = voice_handler.tts.synthesize(welcome, language="en")
+        await websocket.send_bytes(audio_response)
+        
+        while True:
+            # Receive audio data
+            data = await websocket.receive_bytes()
+            
+            # Transcribe with Whisper
+            transcript = voice_handler.stt.transcribe(data)
+            
+            if transcript["text"]:
+                print(f"User said: {transcript['text']}")
+                
+                # Process with LLM
+                session = voice_handler.active_sessions[session_id]
+                response_text = await voice_handler._process_with_llm(
+                    transcript["text"], 
+                    session
+                )
+                
+                print(f"Agent: {response_text}")
+                
+                # Convert to speech
+                audio_response = await voice_handler.tts.synthesize(
+                    response_text, 
+                    language=session["language"]
+                )
+                
+                # Send back
+                await websocket.send_bytes(audio_response)
+            
+    except WebSocketDisconnect:
+        print(f"WebSocket disconnected: {session_id}")
+    finally:
+        if session_id in voice_handler.active_sessions:
+            del voice_handler.active_sessions[session_id]
+
+
+# @app.websocket("/ws/voice")
+# async def voice_websocket(websocket: WebSocket):
+#     """WebSocket endpoint for real-time voice"""
+#     await voice_handler.handle_websocket(websocket)
 
 @app.post("/voice/webhook")
 async def voice_webhook(request: Request):

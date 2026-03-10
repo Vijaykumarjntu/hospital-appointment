@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str = "voiceagent123"
     POSTGRES_DB: str = "voiceagent"
     
+    # Add this to Settings class
+    MISTRAL_API_KEY: Optional[str] = os.getenv("MISTRAL_API_KEY")
+    
     @property
     def DATABASE_URL(self) -> str:
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
