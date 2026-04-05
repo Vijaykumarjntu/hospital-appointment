@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  asterisk:
+    image: andrius/asterisk:latest
+    container_name: asterisk
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "8088:8088"
+      - "5038:5038"
+    volumes:
+      - ./asterisk-config:/etc/asterisk
+    environment:
+      - ASTERISK_UID=1000
+      - ASTERISK_GID=1000
+    command: ["/usr/sbin/asterisk", "-f", "-U", "asterisk", "-G", "asterisk"]

@@ -9,6 +9,12 @@ from src.database.models import (
 )
 from src.database.connection import AsyncSessionLocal,init_db
 
+# from database.models import (
+#     Patient, Doctor, DoctorSchedule, 
+#     Appointment, TimeSlot
+# )
+# from database.connection import AsyncSessionLocal,init_db
+
 async def seed_doctors(session: AsyncSession):
     """Seed doctor data"""
     doctors = [

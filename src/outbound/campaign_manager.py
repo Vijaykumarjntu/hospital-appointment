@@ -2,7 +2,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
-from sqlalchemy import select, update
+from sqlalchemy import select, update, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.connection import AsyncSessionLocal
