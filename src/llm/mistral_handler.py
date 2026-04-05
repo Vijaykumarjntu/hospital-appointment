@@ -1,4 +1,4 @@
-# mistral_handler.py
+# src/llm/mistral_handler.py
 from mistralai.client import Mistral
 from src.config import settings
 import json
@@ -13,14 +13,13 @@ class MistralHandler:
             self.client = None
         else:
             self.client = Mistral(api_key=self.api_key)
-            # Better model recommendation (tiny is too weak for reliable JSON)
-            self.model = "mistral-small-latest"   # or "mistral-tiny" if you must
+            self.model = "mistral-small-latest"   # Better than tiny for JSON
             print(f"✅ Mistral LLM initialized with model: {self.model}")
     
     async def extract_intent(self, text: str, language: str = "en") -> Dict[str, Any]:
         """
         Extract intent and entities from user message.
-        Returns clean dict or fallback.
+        Returns clean dict or fallback on failure.
         """
         if not self.client:
             return self._fallback_extraction(text)
@@ -30,7 +29,7 @@ You are an intent extraction assistant for a hospital appointment system.
 
 User message ({language}): "{text}"
 
-Extract the following and return **ONLY** valid JSON (no extra text, no explanations, no markdown):
+Return **ONLY** valid JSON with no extra text, no markdown, no explanations:
 
 {{
   "intent": "book" | "cancel" | "reschedule" | "check" | "greeting" | "unknown",
@@ -40,40 +39,42 @@ Extract the following and return **ONLY** valid JSON (no extra text, no explanat
   "confidence": 0.0 to 1.0
 }}
 
-Doctor names to look for: Dr. Sharma, Dr. Patel, Dr. Kumar, Dr. Priya.
+Look for these doctors: Dr. Sharma, Dr. Patel, Dr. Kumar, Dr. Priya.
 """
 
         try:
             response = await self.client.chat.complete_async(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a precise JSON-only extractor. Never add any text outside the JSON object."},
+                    {"role": "system", "content": "You are a precise assistant. Always respond with valid JSON only."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.0,          # Lower temperature = more consistent output
+                temperature=0.0,
                 max_tokens=300,
-                response_format={"type": "json_object"}   # Important: Enables JSON mode
+                response_format={"type": "json_object"}
             )
 
             content = response.choices[0].message.content.strip()
 
-            # Robust cleaning: remove markdown, extra text, backticks, etc.
-            if "```json
+            # Clean common issues (markdown, backticks, extra text)
+            if "```json" in content:
                 content = content.split("```json")[1].split("```")[0]
             elif "```" in content:
                 content = content.split("```")[1].split("```")[0]
 
-            # Try to parse
+            # Remove any leading/trailing whitespace or quotes
+            content = content.strip().strip('"')
+
             result = json.loads(content)
             return result
 
         except json.JSONDecodeError as je:
-            print(f"JSON parse error. Raw response was: {content[:500]}")
-            print(f"JSONDecodeError: {je}")
+            print(f"❌ JSON parse failed. Raw response: {content[:400]}")
+            print(f"JSON Error: {je}")
             return self._fallback_extraction(text)
         
         except Exception as e:
-            print(f"Mistral API error in extract_intent: {e}")
+            print(f"❌ Mistral API error in extract_intent: {e}")
             return self._fallback_extraction(text)
     
     async def generate_response(self, 
@@ -82,7 +83,7 @@ Doctor names to look for: Dr. Sharma, Dr. Patel, Dr. Kumar, Dr. Priya.
                               context: Dict,
                               available_slots: Optional[list] = None,
                               language: str = "en") -> str:
-        """Generate natural response (this part usually works better)"""
+        """Generate natural language response"""
         if not self.client:
             return self._fallback_response(intent, context, language)
         
@@ -100,7 +101,7 @@ Context: {context}
 {slots_text}
 
 Reply in {language} language. Be polite, helpful, and concise.
-Do not add any extra explanations.
+Return only the response text.
 """
 
         try:
@@ -117,14 +118,56 @@ Do not add any extra explanations.
             return response.choices[0].message.content.strip()
 
         except Exception as e:
-            print(f"Mistral response error in generate_response: {e}")
+            print(f"❌ Mistral response error in generate_response: {e}")
             return self._fallback_response(intent, context, language)
     
-    # Your fallback methods remain the same (good to keep)
     def _fallback_extraction(self, text: str) -> Dict[str, Any]:
-        # ... (your existing fallback code) ...
-        pass
+        """Simple rule-based fallback"""
+        text_lower = text.lower()
+        
+        if any(word in text_lower for word in ["book", "appointment", "see", "meet", "schedule"]):
+            intent = "book"
+        elif any(word in text_lower for word in ["cancel", "delete", "remove"]):
+            intent = "cancel"
+        elif any(word in text_lower for word in ["reschedule", "change", "move"]):
+            intent = "reschedule"
+        elif any(word in text_lower for word in ["hello", "hi", "hey", "namaste", "vanakkam"]):
+            intent = "greeting"
+        else:
+            intent = "unknown"
+        
+        doctor = None
+        for d in ["sharma", "patel", "kumar", "priya"]:
+            if d in text_lower:
+                doctor = f"Dr. {d.capitalize()}"
+                break
+        
+        return {
+            "intent": intent,
+            "doctor": doctor,
+            "date": None,
+            "time": None,
+            "confidence": 0.5
+        }
     
     def _fallback_response(self, intent: str, context: Dict, language: str) -> str:
-        # ... (your existing fallback code) ...
-        pass
+        """Simple fallback responses"""
+        responses = {
+            "book": {
+                "en": "I can help you book an appointment. Which doctor would you like to see?",
+                "hi": "मैं आपके लिए अपॉइंटमेंट बुक कर सकता हूँ। आप किस डॉक्टर से मिलना चाहेंगे?",
+                "ta": "நான் உங்களுக்கு சந்திப்பு பதிவு செய்ய உதவ முடியும். நீங்கள் எந்த டாக்டரை சந்திக்க விரும்புகிறீர்கள்?"
+            },
+            "cancel": {
+                "en": "I can help you cancel. Please tell me your appointment details.",
+                "hi": "मैं रद्द करने में मदद कर सकता हूँ। कृपया मुझे अपॉइंटमेंट विवरण बताएं।",
+                "ta": "ரத்து செய்ய நான் உதவ முடியும். தயவுசெய்து உங்கள் சந்திப்பு விவரங்களை சொல்லுங்கள்."
+            },
+            "greeting": {
+                "en": "Hello! How can I help you with your appointment today?",
+                "hi": "नमस्ते! आज मैं आपकी अपॉइंटमेंट में कैसे मदद कर सकता हूँ?",
+                "ta": "வணக்கம்! இன்று உங்கள் சந்திப்பில் நான் எப்படி உதவ முடியும்?"
+            }
+        }
+        
+        return responses.get(intent, {}).get(language, responses["greeting"]["en"])

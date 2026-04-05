@@ -7,7 +7,7 @@ from src.config import settings
 from src.database.connection import init_db, close_db, get_db, redis_client
 from src.database.models import Patient, Doctor
 from src.voice.free_voice_handler import FreeVoiceHandler
-
+import asyncio
 # Initialize free voice handler
 voice_handler = FreeVoiceHandler()
 
@@ -76,67 +76,169 @@ async def health_check():
 async def favicon():
     return Response(status_code=204)  # No content
 
-# ========== FREE VOICE ENDPOINTS ==========
+# # ========== FREE VOICE ENDPOINTS ==========
+# @app.websocket("/ws/voice")
+# async def voice_websocket(websocket: WebSocket):
+#     """WebSocket endpoint for real-time voice with LLM"""
+#     await websocket.accept()
+#     session_id = str(id(websocket))
+    
+#     # Initialize session with patient ID (you'd get this from caller ID in production)
+#     voice_handler.active_sessions[session_id] = {
+#         "state": "greeting",
+#         "language": "en",
+#         "context": {},
+#         "patient_id": 1,  # Default patient for testing
+#         "websocket": websocket
+#     }
+    
+#     print(f"✅ WebSocket connected: {session_id}")
+    
+#     try:
+#         # Send welcome message
+#         welcome = await voice_handler.llm.generate_response(
+#             "hello", 
+#             "greeting", 
+#             {}, 
+#             language="en"
+#         )
+
+#         # audio_response = await voice_handler.tts.synthesize(welcome, language="en")
+#         audio_response = voice_handler.tts.synthesize(welcome, language="en")
+#         await websocket.send_bytes(audio_response)
+        
+#         while True:
+#             # Receive audio data
+#             data = await websocket.receive_bytes()
+            
+#             # Transcribe with Whisper
+#             transcript = voice_handler.stt.transcribe(data)
+            
+#             if transcript["text"]:
+#                 print(f"User said: {transcript['text']}")
+                
+#                 # Process with LLM
+#                 session = voice_handler.active_sessions[session_id]
+#                 response_text = await voice_handler._process_with_llm(
+#                     transcript["text"], 
+#                     session
+#                 )
+                
+#                 print(f"Agent: {response_text}")
+                
+#                 # Convert to speech
+#                 audio_response = await voice_handler.tts.synthesize(
+#                     response_text, 
+#                     language=session["language"]
+#                 )
+                
+#                 # Send back
+#                 await websocket.send_bytes(audio_response)
+            
+#     except WebSocketDisconnect:
+#         print(f"WebSocket disconnected: {session_id}")
+#     finally:
+#         if session_id in voice_handler.active_sessions:
+#             del voice_handler.active_sessions[session_id]
+
 @app.websocket("/ws/voice")
 async def voice_websocket(websocket: WebSocket):
-    """WebSocket endpoint for real-time voice with LLM"""
+    """WebSocket endpoint for real-time voice conversation"""
     await websocket.accept()
     session_id = str(id(websocket))
     
-    # Initialize session with patient ID (you'd get this from caller ID in production)
+    # Initialize session
     voice_handler.active_sessions[session_id] = {
         "state": "greeting",
         "language": "en",
         "context": {},
-        "patient_id": 1,  # Default patient for testing
+        "patient_id": 1,
         "websocket": websocket
     }
     
+    session = voice_handler.active_sessions[session_id]
     print(f"✅ WebSocket connected: {session_id}")
-    
+
     try:
-        # Send welcome message
-        welcome = await voice_handler.llm.generate_response(
-            "hello", 
-            "greeting", 
-            {}, 
-            language="en"
-        )
-        # audio_response = await voice_handler.tts.synthesize(welcome, language="en")
-        audio_response = voice_handler.tts.synthesize(welcome, language="en")
-        await websocket.send_bytes(audio_response)
+        # ====================== INITIAL WELCOME MESSAGE ======================
+        print("Sending initial welcome...")
         
+        welcome_text = voice_handler.llm.generate_response(   # ← sync call (no await)
+            user_message="hello", 
+            intent="greeting", 
+            context=session["context"], 
+            language=session["language"]
+        )
+        
+        # print(f"Welcome text: {welcome_text[:150]}...")
+
+        # TTS (sync function - no await)
+        # audio_response = voice_handler.tts.synthesize(welcome_text, language=session["language"])
+        
+        audio_response = await asyncio.get_event_loop().run_in_executor(
+            None,  # uses default ThreadPoolExecutor
+            lambda: voice_handler.tts.synthesize(welcome_text, language=session["language"])
+        )
+        await websocket.send_bytes(audio_response)
+        print("✅ Initial welcome audio sent to client")
+
+        # ====================== MAIN CONVERSATION LOOP ======================
         while True:
-            # Receive audio data
+            # Receive audio from browser/microphone
             data = await websocket.receive_bytes()
+
+            # STT (assuming transcribe is sync - change if it's async)
+            # transcript = voice_handler.stt.transcribe(data)
             
-            # Transcribe with Whisper
-            transcript = voice_handler.stt.transcribe(data)
+            transcript = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: voice_handler.stt.transcribe(data)
+            )
+            user_text = transcript.get("text", "").strip()
             
-            if transcript["text"]:
-                print(f"User said: {transcript['text']}")
-                
-                # Process with LLM
-                session = voice_handler.active_sessions[session_id]
-                response_text = await voice_handler._process_with_llm(
-                    transcript["text"], 
-                    session
-                )
-                
-                print(f"Agent: {response_text}")
-                
-                # Convert to speech
-                audio_response = await voice_handler.tts.synthesize(
-                    response_text, 
-                    language=session["language"]
-                )
-                
-                # Send back
+            if not user_text:
+                continue  # ignore empty/silence
+
+            print(f"👤 User said: {user_text}")
+
+            # Process with LLM (this is async)
+            response_text = await voice_handler._process_with_llm(user_text, session)
+            
+            if not response_text or not response_text.strip():
+                response_text = "Sorry, I didn't catch that. Can you please repeat?"
+
+            print(f"🤖 Agent response: {response_text[:200]}...")
+
+            # TTS - sync function (no await)
+            print("calling tts synthesize")
+            # audio_response = voice_handler.tts.synthesize(
+            #     response_text, 
+            #     language=session["language"]
+            # )
+            # For the conversation loop:
+            audio_response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: voice_handler.tts.synthesize(response_text, language=session["language"])
+            )
+            print(f"✅ TTS returned {len(audio_response)} bytes")
+            # Send audio back
+            # await websocket.send_bytes(audio_response)
+            # print("✅ Response audio sent to client")
+            # Send back
+            if audio_response:
                 await websocket.send_bytes(audio_response)
-            
+                print("✅ Audio sent to client")
+            else:
+                print("⚠️ Empty audio from TTS")
+
     except WebSocketDisconnect:
         print(f"WebSocket disconnected: {session_id}")
+    except Exception as e:
+        print(f"❌ Critical error in voice websocket: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
+        # Cleanup
         if session_id in voice_handler.active_sessions:
             del voice_handler.active_sessions[session_id]
 

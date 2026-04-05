@@ -27,7 +27,8 @@ class FreeVoiceHandler:
         print("Initializing Free TTS (Coqui)...")
         try:
             # Try multilingual model first
-            self.tts = FreeTextToSpeech("tts_models/multilingual/multi-dataset/your_tts")
+            # self.tts = FreeTextToSpeech("tts_models/multilingual/multi-dataset/your_tts")
+            self.tts = FreeTextToSpeech()
               # Initialize Mistral
             self.llm = MistralHandler()
 
@@ -39,7 +40,8 @@ class FreeVoiceHandler:
         except:
             # Fallback to English model
             print("Multilingual model failed, falling back to English")
-            self.tts = FreeTextToSpeech("tts_models/en/ljspeech/tacotron2-DDC")
+            # self.tts = FreeTextToSpeech("tts_models/en/ljspeech/tacotron2-DDC")
+            self.tts = FreeTextToSpeech()
         
         # Initialize SIP (for real calls)
         self.sip = SimpleSIPHandler()
