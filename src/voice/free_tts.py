@@ -61,6 +61,7 @@ class FreeTextToSpeech:
         Convert text to speech audio bytes
         Returns: WAV audio bytes
         """
+        print("synthesize working which is inside the tts")
         try:
              # Select voice based on language
             voice_idx = self.voice_map.get(language, 0)

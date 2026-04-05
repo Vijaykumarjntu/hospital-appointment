@@ -50,6 +50,7 @@ class FreeSpeechToText:
         Transcribe audio bytes to text
         Returns: {"text": "...", "language": "en", "confidence": 0.95}
         """
+        print("transcribe working")
         try:
             # Save bytes to temp file
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:

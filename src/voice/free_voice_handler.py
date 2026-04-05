@@ -51,28 +51,34 @@ class FreeVoiceHandler:
 
     async def _process_with_llm(self, text: str, session: dict) -> dict:
         """Process user input with LLM"""
+        print("process with llm working")
         # Extract intent
-        intent_data = await self.llm.extract_intent(text, session.get("language", "en"))
-        
-        # If we have doctor/date/time, store in session
-        if intent_data.get("doctor"):
-            session["context"]["doctor"] = intent_data["doctor"]
-        if intent_data.get("date"):
-            session["context"]["date"] = intent_data["date"]
-        if intent_data.get("time"):
-            session["context"]["time"] = intent_data["time"]
+        try:
+            intent_data = await self.llm.extract_intent(text, session.get("language", "en"))
+            print("this is intent data")
+            print(intent_data)
+            # If we have doctor/date/time, store in session
+            if intent_data.get("doctor"):
+                session["context"]["doctor"] = intent_data["doctor"]
+            if intent_data.get("date"):
+                session["context"]["date"] = intent_data["date"]
+            if intent_data.get("time"):
+                session["context"]["time"] = intent_data["time"]
 
-         # Handle different intents
-        if intent_data["intent"] == "book":
-            return await self._handle_booking_intent(session, intent_data)
-        elif intent_data["intent"] == "cancel":
-            return await self._handle_cancel_intent(session, intent_data)
-        elif intent_data["intent"] == "greeting":
-            session["state"] = "conversation"
-            return await self.llm.generate_response(text, "greeting", session, language=session["language"])
-        else:
-            return await self.llm.generate_response(text, "unknown", session, language=session["language"])
-    
+            # Handle different intents
+            if intent_data["intent"] == "book":
+                return await self._handle_booking_intent(session, intent_data)
+            elif intent_data["intent"] == "cancel":
+                return await self._handle_cancel_intent(session, intent_data)
+            elif intent_data["intent"] == "greeting":
+                session["state"] = "conversation"
+                return await self.llm.generate_response(text, "greeting", session, language=session["language"])
+            else:
+                return await self.llm.generate_response(text, "unknown", session, language=session["language"])
+        except:
+            print(e)
+            print("the things are not wrking as expected ")
+
     async def _handle_booking_intent(self, session: dict, intent: dict) -> str:
         """Handle booking flow with real slot checking"""
         
@@ -315,7 +321,7 @@ class FreeVoiceHandler:
     def _generate_response(self, text: str, session: dict) -> str:
         """Generate simple rule-based responses (temp until LLM)"""
         text_lower = text.lower()
-        
+        print("generate response working")
         # Simple intent detection
         if "book" in text_lower or "appointment" in text_lower:
             session["state"] = "booking"
