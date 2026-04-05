@@ -8,6 +8,13 @@ from src.database.connection import init_db, close_db, get_db, redis_client
 from src.database.models import Patient, Doctor
 from src.voice.free_voice_handler import FreeVoiceHandler
 import asyncio
+from src.outbound.scheduler import OutboundScheduler
+from src.outbound.call_handler import OutboundCallHandler
+
+
+outbound_scheduler = OutboundScheduler()
+outbound_call_handler = OutboundCallHandler()
+
 # Initialize free voice handler
 voice_handler = FreeVoiceHandler()
 
@@ -21,12 +28,14 @@ async def lifespan(app: FastAPI):
     await redis_client.set("test_key", "Redis is working!")
     test_value = await redis_client.get("test_key")
     print(f"✅ {test_value}")
+    outbound_scheduler.start()
     
     yield
     
     # Shutdown
     await close_db()
     print("👋 Shutdown complete")
+    outbound_scheduler.stop()
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -389,6 +398,12 @@ async def get_doctor_slots(
         }
         for s in slots
     ]
+
+# Add webhook for outbound call responses
+@app.post("/outbound/response")
+async def outbound_response(request: Request):
+    """Handle responses from outbound calls"""
+    return await outbound_call_handler.handle_outbound_response(request)
 
 # Import for type hints
 from sqlalchemy import Date
