@@ -8,6 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.connection import AsyncSessionLocal
 from src.database.models import Appointment, Patient, Doctor
 from src.config import settings
+from twilio.rest import Client
+import os 
+# src/main.py - at the very top
+from dotenv import load_dotenv
+load_dotenv()  # This loads your .env file
 
 class CampaignManager:
     """Manage outbound calling campaigns"""
@@ -16,6 +21,22 @@ class CampaignManager:
         self.active_campaigns = {}
         self.call_queue = []
         self.is_running = False
+        self.twilio_account_sid = os.getenv('TWILIO_ACCOUNT_SID')
+        self.twilio_auth_token = os.getenv('TWILIO_AUTH_TOKEN')
+        self.twilio_from_number = os.getenv('TWILIO_PHONE_NUMBER')
+        self.my_phone_number = os.getenv('MY_PHONE_NUMBER')
+        self.public_url = os.getenv('PUBLIC_URL')
+        
+        # Initialize Twilio if credentials exist
+        if self.twilio_account_sid and self.twilio_auth_token:
+            self.twilio_client = Client(
+                self.twilio_account_sid, 
+                self.twilio_auth_token
+            )
+            print("✅ Twilio client initialized")
+        else:
+            self.twilio_client = None
+            print("⚠️ Twilio not configured")
         
     async def start_reminder_campaign(self):
         """Start daily reminder campaign for tomorrow's appointments"""
@@ -83,17 +104,31 @@ class CampaignManager:
         
         self.is_running = False
     
-    async def make_outbound_call(self, call_data: Dict):
+    # async def make_outbound_call(self, call_data: Dict):
+    async def make_outbound_call(self):
         """Make the actual outbound call"""
-        print(f"📞 Calling {call_data.get('patient_name')} at {call_data.get('phone')}")
+        # print(f"📞 Calling {call_data.get('patient_name')} at {call_data.get('phone')}")
         
-        # Update call status
-        call_data["status"] = "calling"
-        call_data["called_at"] = datetime.now().isoformat()
+        # # Update call status
+        # call_data["status"] = "calling"
+        # call_data["called_at"] = datetime.now().isoformat()
         
-        # Here we would integrate with Twilio/SIP
-        # For now, simulate the call
-        await self.simulate_call(call_data)
+        # # Here we would integrate with Twilio/SIP
+        # # For now, simulate the call
+        # await self.simulate_call(call_data)
+
+        # Use values directly
+        to_number = self.my_phone_number        # YOUR number
+        from_number = self.twilio_from_number   # Twilio's number
+        
+        print(f"📞 Calling {to_number} from {from_number}")
+        
+        if self.twilio_client and self.public_url:
+            call = self.twilio_client.calls.create(
+                to=to_number,
+                from_=from_number,
+                url=f"{self.public_url}/outbound/response"
+            )
     
     async def simulate_call(self, call_data: Dict):
         """Simulate an outbound call (for testing without Twilio)"""
@@ -158,3 +193,11 @@ class CampaignManager:
         call_data["status"] = "completed"
         call_data["outcome"] = outcome
         call_data["completed_at"] = datetime.now().isoformat()
+
+    def make_real_call(self, to_number, message):
+        client = Client(account_sid, auth_token)
+        call = client.calls.create(
+            url='https://your-ngrok.ngrok.io/outbound/response',
+            to=to_number,  # YOUR verified number
+            from_=twilio_number
+        )

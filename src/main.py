@@ -10,7 +10,8 @@ from src.voice.free_voice_handler import FreeVoiceHandler
 import asyncio
 from src.outbound.scheduler import OutboundScheduler
 from src.outbound.call_handler import OutboundCallHandler
-
+from dotenv import load_dotenv
+load_dotenv()
 
 outbound_scheduler = OutboundScheduler()
 outbound_call_handler = OutboundCallHandler()

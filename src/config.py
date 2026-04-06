@@ -35,13 +35,19 @@ class Settings(BaseSettings):
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
     
     # Twilio (will add later)
-    TWILIO_ACCOUNT_SID: Optional[str] = None
-    TWILIO_AUTH_TOKEN: Optional[str] = None
-    TWILIO_PHONE_NUMBER: Optional[str] = None
-    
-    # OpenAI (will add later)
-    OPENAI_API_KEY: Optional[str] = None
-    
+    # TWILIO_ACCOUNT_SID: Optional[str] = os.getenv('TWILIO_ACCOUNT_SID')
+    # TWILIO_AUTH_TOKEN: Optional[str] = os.getenv('TWILIO_AUTH_TOKEN')
+    # TWILIO_PHONE_NUMBER: Optional[str] = os.getenv('TWILIO_PHONE_NUMBER')
+    TWILIO_ACCOUNT_SID: str = os.getenv('TWILIO_ACCOUNT_SID')
+    TWILIO_AUTH_TOKEN: str = os.getenv('TWILIO_AUTH_TOKEN')
+    TWILIO_PHONE_NUMBER: int = os.getenv('TWILIO_PHONE_NUMBER')
+    PUBLIC_URL: Optional[str] = os.getenv('PUBLIC_URL')
+    MY_PHONE_NUMBER: Optional[str] = os.getenv('MY_PHONE_NUMBER')
+    # # OpenAI (will add later)
+    # OPENAI_API_KEY: Optional[str] = None
+
+        # self.my_phone_number = 
+        # self.public_url = 
     class Config:
         env_file = ".env"
 
