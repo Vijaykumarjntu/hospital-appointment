@@ -56,7 +56,19 @@ class FreeVoiceHandler:
         print("process with llm working")
         # Extract intent
         try:
-            intent_data = await self.llm.extract_intent(text, session.get("language", "en"))
+            # Add user message to history FIRST
+            session["history"].append({"role": "user", "content": text})
+
+            # Pass history to extract_intent
+            intent_data = await self.llm.extract_intent(
+                text,
+                session.get("language", "en"),
+                history=session["history"]   # ← history passed here
+            )
+
+            print(f"Intent: {intent_data}")
+
+            # intent_data = await self.llm.extract_intent(text, session.get("language", "en"))
             print("this is intent data")
             print(intent_data)
             # If we have doctor/date/time, store in session
@@ -66,6 +78,8 @@ class FreeVoiceHandler:
                 session["context"]["date"] = intent_data["date"]
             if intent_data.get("time"):
                 session["context"]["time"] = intent_data["time"]
+            if intent_data.get("intent"):
+                session["context"]["intent"] = intent_data["intent"]
 
             # Handle different intents
             if intent_data["intent"] == "book":
@@ -77,6 +91,10 @@ class FreeVoiceHandler:
                 return await self.llm.generate_response(text, "greeting", session, language=session["language"])
             else:
                 return await self.llm.generate_response(text, "unknown", session, language=session["language"])
+        
+            # Add assistant response to history
+            session["history"].append({"role": "assistant", "content": response})
+
         except:
             print(e)
             print("the things are not wrking as expected ")

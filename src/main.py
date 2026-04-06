@@ -158,12 +158,29 @@ async def voice_websocket(websocket: WebSocket):
     session_id = str(id(websocket))
     
     # Initialize session
+    # voice_handler.active_sessions[session_id] = {
+    #     "state": "greeting",
+    #     "language": "en",
+    #     "context": {},
+    #     "patient_id": 1,
+    #     "websocket": websocket
+    # }
+
+     # Initialize session WITH MEMORY
     voice_handler.active_sessions[session_id] = {
         "state": "greeting",
         "language": "en",
-        "context": {},
+        "context": {
+            "doctor": None,      # ← Remember doctor
+            "date": None,        # ← Remember date  
+            "time": None,        # ← Remember time
+            "intent": None,      # ← Remember what they want
+            "last_question": None # ← Remember what we asked
+        },
+        "history": [],           # ← Store ALL conversation
         "patient_id": 1,
-        "websocket": websocket
+        "websocket": websocket,
+        "turn_count": 0
     }
     
     session = voice_handler.active_sessions[session_id]
@@ -185,6 +202,9 @@ async def voice_websocket(websocket: WebSocket):
         # TTS (sync function - no await)
         # audio_response = voice_handler.tts.synthesize(welcome_text, language=session["language"])
         
+        # Add welcome to history
+        session["history"].append({"role": "assistant", "content": welcome_text})
+
         audio_response = await asyncio.get_event_loop().run_in_executor(
             None,  # uses default ThreadPoolExecutor
             lambda: voice_handler.tts.synthesize(welcome_text, language=session["language"])
@@ -210,6 +230,8 @@ async def voice_websocket(websocket: WebSocket):
                 continue  # ignore empty/silence
 
             print(f"👤 User said: {user_text}")
+            # await update_context_from_history(session, user_text)
+
 
             # Process with LLM (this is async)
             response_text = await voice_handler._process_with_llm(user_text, session)
@@ -218,7 +240,11 @@ async def voice_websocket(websocket: WebSocket):
                 response_text = "Sorry, I didn't catch that. Can you please repeat?"
 
             print(f"🤖 Agent response: {response_text[:200]}...")
-
+             # Store in history
+            # session["history"].append({"role": "user", "content": user_text})
+            # session["history"].append({"role": "assistant", "content": response_text})
+            # session["turn_count"] += 1
+            
             # TTS - sync function (no await)
             print("calling tts synthesize")
             # audio_response = voice_handler.tts.synthesize(

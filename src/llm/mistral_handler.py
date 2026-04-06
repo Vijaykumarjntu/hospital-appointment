@@ -16,7 +16,7 @@ class MistralHandler:
             self.model = "mistral-small-latest"   # Better than tiny for JSON
             print(f"✅ Mistral LLM initialized with model: {self.model}")
     
-    async def extract_intent(self, text: str, language: str = "en") -> Dict[str, Any]:
+    async def extract_intent(self, text: str, language: str = "en",  history: list = []) -> Dict[str, Any]:
         """
         Extract intent and entities from user message.
         Returns clean dict or fallback on failure.
@@ -24,8 +24,18 @@ class MistralHandler:
         if not self.client:
             return self._fallback_extraction(text)
         
+        history_text = ""
+        if history:
+            history_text = "\n".join([
+                f"{m['role'].upper()}: {m['content']}" 
+                for m in history[-6:]  # last 6 messages only
+            ])
+
         prompt = f"""
 You are an intent extraction assistant for a hospital appointment system.
+
+Previous conversation:
+{history_text}
 
 User message ({language}): "{text}"
 
