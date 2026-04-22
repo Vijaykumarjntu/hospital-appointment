@@ -94,16 +94,17 @@ class FreeVoiceHandler:
         
             # Add assistant response to history
             session["history"].append({"role": "assistant", "content": response})
-
-        except:
+        # except:
+        except Exception as e:
             print(e)
             print("the things are not wrking as expected ")
 
     async def _handle_booking_intent(self, session: dict, intent: dict) -> str:
         """Handle booking flow with real slot checking"""
-        
+        print("booking working")
         # If we have all info, check slots
         if intent.get("doctor") and intent.get("date") and intent.get("time"):
+            print("if block working")
             # Check if slot is available in database
             available = await self._check_slot_availability(
                 intent["doctor"], 
@@ -118,6 +119,7 @@ class FreeVoiceHandler:
                     intent["date"],
                     intent["time"]
                 )
+                print("booking result working")
                 if booking_result["success"]:
                     session["state"] = "confirmed"
                     return f"Great! Your appointment with {intent['doctor']} on {intent['date']} at {intent['time']} is confirmed. Your confirmation number is {booking_result['appointment_id']}."
@@ -138,10 +140,13 @@ class FreeVoiceHandler:
         
         # Missing info - ask for it
         elif not intent.get("doctor"):
+            print("missing infor working in booking")
             return "Which doctor would you like to see? We have Dr. Sharma, Dr. Patel, Dr. Kumar, and Dr. Priya."
         elif not intent.get("date"):
+            print("missing date working in date")
             return f"What date would you like to see Dr. {session['context'].get('doctor', 'the doctor')}?"
         elif not intent.get("time"):
+            print("missing time working in booking")
             # Check available times for this doctor/date
             slots = await self._get_available_times(
                 session["context"].get("doctor"),

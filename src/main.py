@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse  # ← Add this line
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from contextlib import asynccontextmanager
@@ -432,6 +433,230 @@ async def outbound_response(request: Request):
     """Handle responses from outbound calls"""
     return await outbound_call_handler.handle_outbound_response(request)
 
+
+@app.get("/doctors")
+async def get_all_doctors(db: AsyncSession = Depends(get_db)):
+    """Get list of all doctors"""
+    result = await db.execute(select(Doctor).where(Doctor.is_active == True))
+    doctors = result.scalars().all()
+    
+    return [
+        {
+            "id": d.id,
+            "name": d.name,
+            "specialization": d.specialization
+        }
+        for d in doctors
+    ]
+
+@app.get("/doctors/{doctor_id}")
+async def get_doctor_details(doctor_id: int, db: AsyncSession = Depends(get_db)):
+    """Get doctor details with their slots"""
+    # Get doctor info
+    doctor_result = await db.execute(select(Doctor).where(Doctor.id == doctor_id))
+    doctor = doctor_result.scalar_one_or_none()
+    
+    if not doctor:
+        return {"error": "Doctor not found"}
+    
+    # Get available slots for next 7 days
+    from datetime import datetime, timedelta
+    end_date = datetime.now() + timedelta(days=7)
+    
+    slots_result = await db.execute(
+        select(TimeSlot).where(
+            TimeSlot.doctor_id == doctor_id,
+            TimeSlot.slot_time > datetime.now(),
+            TimeSlot.slot_time < end_date,
+            TimeSlot.is_booked == False
+        ).order_by(TimeSlot.slot_time)
+    )
+    slots = slots_result.scalars().all()
+    
+    # Group slots by date
+    slots_by_date = {}
+    for slot in slots:
+        date_str = slot.slot_time.strftime("%Y-%m-%d")
+        if date_str not in slots_by_date:
+            slots_by_date[date_str] = []
+        slots_by_date[date_str].append({
+            "id": slot.id,
+            "time": slot.slot_time.strftime("%I:%M %p"),
+            "datetime": slot.slot_time.isoformat()
+        })
+    
+    return {
+        "id": doctor.id,
+        "name": doctor.name,
+        "specialization": doctor.specialization,
+        "slots": slots_by_date
+    }
+
+@app.post("/api/book-slot")
+async def book_slot(slot_id: int, patient_id: int, db: AsyncSession = Depends(get_db)):
+    """Book a specific slot"""
+    from src.scheduling.conflict_resolver import ConflictResolver
+    
+    result = await ConflictResolver.book_slot_transaction(
+        db, slot_id, patient_id, {'source': 'web'}
+    )
+    
+    if result['success']:
+        return {"success": True, "appointment_id": result['appointment_id']}
+    else:
+        return {"success": False, "error": result['message']}
+
+@app.get("/doctors-page")
+async def doctors_page():
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Our Doctors</title>
+        <style>
+            body { font-family: Arial; padding: 20px; max-width: 1200px; margin: 0 auto; }
+            .doctor-card {
+                border: 1px solid #ddd;
+                border-radius: 10px;
+                padding: 20px;
+                margin: 15px;
+                display: inline-block;
+                width: 250px;
+                cursor: pointer;
+                transition: 0.3s;
+            }
+            .doctor-card:hover {
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                transform: translateY(-3px);
+            }
+            .doctor-name { font-size: 20px; font-weight: bold; color: #007bff; }
+            .specialization { color: #666; margin: 10px 0; }
+            button {
+                background: #007bff;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 5px;
+                cursor: pointer;
+                width: 100%;
+            }
+            button:hover { background: #0056b3; }
+        </style>
+    </head>
+    <body>
+        <h1>🏥 Our Doctors</h1>
+        <div id="doctors"></div>
+        
+        <script>
+            async function loadDoctors() {
+                const response = await fetch('/doctors');
+                const doctors = await response.json();
+                
+                const container = document.getElementById('doctors');
+                container.innerHTML = '';
+                
+                doctors.forEach(doc => {
+                    const card = document.createElement('div');
+                    card.className = 'doctor-card';
+                    card.innerHTML = `
+                        <div class="doctor-name">${doc.name}</div>
+                        <div class="specialization">${doc.specialization}</div>
+                        <button onclick="viewDoctor(${doc.id})">View Slots</button>
+                    `;
+                    container.appendChild(card);
+                });
+            }
+            
+            function viewDoctor(doctorId) {
+                window.location.href = `/doctor-slots-page/${doctorId}`;
+            }
+            
+            loadDoctors();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+@app.get("/doctor-slots-page/{doctor_id}")
+async def doctor_slots_page(doctor_id: int):
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Doctor Slots</title>
+        <style>
+            body {{ font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }}
+            .slot {{ 
+                padding: 10px; 
+                margin: 5px; 
+                background: #f0f0f0; 
+                border-radius: 5px;
+                display: inline-block;
+                cursor: pointer;
+            }}
+            .slot:hover {{ background: #007bff; color: white; }}
+            .date-group {{ margin: 20px 0; }}
+            .date-title {{ font-size: 18px; font-weight: bold; margin: 10px 0; }}
+            #doctor-info {{ background: #e8f5e9; padding: 15px; border-radius: 10px; margin-bottom: 20px; }}
+        </style>
+    </head>
+    <body>
+        <div id="doctor-info">Loading doctor info...</div>
+        <div id="slots"></div>
+        
+        <script>
+            const doctor_id = {doctor_id};
+            async function loadDoctor() {{
+                const response = await fetch(`/doctors/${{doctor_id}}`);
+                const doctor = await response.json();
+                
+                document.getElementById('doctor-info').innerHTML = `
+                    <h2>${{doctor.name}}</h2>
+                    <p>Specialization: ${{doctor.specialization}}</p>
+                `;
+                
+                const slotsDiv = document.getElementById('slots');
+                slotsDiv.innerHTML = '';
+                
+                for (const [date, slots] of Object.entries(doctor.slots)) {{
+                    const dateGroup = document.createElement('div');
+                    dateGroup.className = 'date-group';
+                    dateGroup.innerHTML = `<div class="date-title">📅 ${{date}}</div>`;
+                    
+                    slots.forEach(slot => {{
+                        const slotEl = document.createElement('div');
+                        slotEl.className = 'slot';
+                        slotEl.innerHTML = `🕐 ${{slot.time}}`;
+                        slotEl.onclick = () => bookSlot(slot.id, slot.time);
+                        dateGroup.appendChild(slotEl);
+                    }});
+                    
+                    slotsDiv.appendChild(dateGroup);
+                }}
+            }}
+            
+            function bookSlot(slotId, slotTime) {{
+                if(confirm(`Book appointment at ${{slotTime}}?`)) {{
+                    fetch(`/api/book-slot?slot_id=${{slotId}}&patient_id=1`, {{ method: 'POST' }})
+                        .then(res => res.json())
+                        .then(data => {{
+                            if(data.success) {{
+                                alert('✅ Appointment confirmed!');
+                                window.location.href = '/doctors-page';
+                            }} else {{
+                                alert('❌ Booking failed: ' + data.error);
+                            }}
+                        }});
+                }}
+            }}
+            
+            loadDoctor();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 # Import for type hints
 from sqlalchemy import Date
 from src.database.connection import AsyncSessionLocal

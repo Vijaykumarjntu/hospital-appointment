@@ -1,19 +1,14 @@
+# src/database/seed_data.py
 from datetime import time, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
-
+from sqlalchemy import text
 from src.database.models import (
     Patient, Doctor, DoctorSchedule, 
     Appointment, TimeSlot
 )
-from src.database.connection import AsyncSessionLocal,init_db
-
-# from database.models import (
-#     Patient, Doctor, DoctorSchedule, 
-#     Appointment, TimeSlot
-# )
-# from database.connection import AsyncSessionLocal,init_db
+from src.database.connection import AsyncSessionLocal, init_db
 
 async def seed_doctors(session: AsyncSession):
     """Seed doctor data"""
@@ -22,25 +17,29 @@ async def seed_doctors(session: AsyncSession):
             name="Dr. Sharma",
             specialization="Cardiologist",
             time_slot_duration=30,
-            buffer_time=5
+            buffer_time=5,
+            mdata={}
         ),
         Doctor(
             name="Dr. Patel",
             specialization="General Physician",
             time_slot_duration=30,
-            buffer_time=5
+            buffer_time=5,
+            mdata={}
         ),
         Doctor(
             name="Dr. Kumar",
             specialization="Pediatrician",
             time_slot_duration=30,
-            buffer_time=5
+            buffer_time=5,
+            mdata={}
         ),
         Doctor(
             name="Dr. Priya",
             specialization="Dermatologist",
             time_slot_duration=30,
-            buffer_time=5
+            buffer_time=5,
+            mdata={}
         ),
     ]
     
@@ -65,7 +64,7 @@ async def seed_schedules(session: AsyncSession, doctors):
                 is_available=True
             )
             schedules.append(schedule)
-    
+
     session.add_all(schedules)
     await session.commit()
     print(f"✅ Seeded schedules for {len(doctors)} doctors")
@@ -76,19 +75,19 @@ async def seed_patients(session: AsyncSession):
         Patient(
             phone_number="+919876543210",
             name="Rajesh Kumar",
-            preferred_language="hi",  # Hindi
+            preferred_language="hi",
             mdata={"city": "Mumbai"}
         ),
         Patient(
             phone_number="+919876543211",
             name="Priya Singh",
-            preferred_language="en",  # English
+            preferred_language="en",
             mdata={"city": "Delhi"}
         ),
         Patient(
             phone_number="+919876543212",
             name="Karthik",
-            preferred_language="ta",  # Tamil
+            preferred_language="ta",
             mdata={"city": "Chennai"}
         ),
     ]
@@ -109,7 +108,8 @@ async def seed_appointments(session: AsyncSession, patients, doctors):
             patient_id=patients[0].id,
             doctor_id=doctors[0].id,
             appointment_time=past_date.replace(hour=10, minute=0),
-            status="completed"
+            status="completed",
+            mdata={}
         )
     )
     
@@ -120,7 +120,8 @@ async def seed_appointments(session: AsyncSession, patients, doctors):
             patient_id=patients[0].id,
             doctor_id=doctors[0].id,
             appointment_time=future_date.replace(hour=15, minute=0),
-            status="scheduled"
+            status="scheduled",
+            mdata={}
         )
     )
     
@@ -131,7 +132,8 @@ async def seed_appointments(session: AsyncSession, patients, doctors):
             patient_id=patients[1].id,
             doctor_id=doctors[1].id,
             appointment_time=future_date2.replace(hour=11, minute=30),
-            status="scheduled"
+            status="scheduled",
+            mdata={}
         )
     )
     
@@ -140,9 +142,10 @@ async def seed_appointments(session: AsyncSession, patients, doctors):
     print(f"✅ Seeded {len(appointments)} appointments")
     return appointments
 
-async def seed_time_slots(session: AsyncSession, doctors, days_ahead=14):
-    """Pre-generate time slots for next N days"""
+async def seed_time_slots(session: AsyncSession, doctors, days_ahead=30):
+    """Pre-generate time slots for next 30 days"""
     slots = []
+    total_slots = 0
     
     for doctor in doctors:
         # Get doctor's schedule
@@ -150,7 +153,7 @@ async def seed_time_slots(session: AsyncSession, doctors, days_ahead=14):
         result = await session.execute(stmt)
         schedules = result.scalars().all()
         
-        # Generate slots for next 14 days
+        # Generate slots for next 30 days
         for day_offset in range(1, days_ahead + 1):
             slot_date = datetime.now() + timedelta(days=day_offset)
             weekday = slot_date.isoweekday()  # 1=Monday, 7=Sunday
@@ -182,6 +185,7 @@ async def seed_time_slots(session: AsyncSession, doctors, days_ahead=14):
                             is_booked=False
                         )
                         slots.append(slot)
+                        total_slots += 1
                     
                     current_time += timedelta(minutes=doctor.time_slot_duration)
     
@@ -189,22 +193,64 @@ async def seed_time_slots(session: AsyncSession, doctors, days_ahead=14):
     if slots:
         session.add_all(slots)
         await session.commit()
-        print(f"✅ Seeded {len(slots)} time slots")
+        print(f"✅ Seeded {total_slots} time slots for next {days_ahead} days")
+    else:
+        print(f"⚠️ No new slots added for next {days_ahead} days")
 
 async def seed_all():
     """Run all seed functions"""
+    print("=" * 50)
+    print("SEEDING DATABASE")
+    print("=" * 50)
+    
+    # Create tables first
+    print("\n📦 Creating database tables...")
     await init_db()
-    async with AsyncSessionLocal() as session:
-        # Clear existing data (optional - careful in production!)
-        # await session.execute("TRUNCATE TABLE time_slots, appointments, doctor_schedules, doctors, patients CASCADE")
+    
+    # Check if data already exists
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import func
+        doctor_count = await db.execute(select(func.count(Doctor.id)))
+        doctor_count = doctor_count.scalar()
         
+        if doctor_count < 10:
+            print(f"\n⚠️ Database already has {doctor_count} doctors.")
+            response = input("Do you want to reset all data? (yes/no): ")
+            if response.lower() != 'yes':
+                print("❌ Seeding cancelled.")
+                return
+            
+            # Clear existing data
+            print("🗑️ Clearing existing data...")
+            # await db.execute("TRUNCATE TABLE time_slots, appointments, doctor_schedules, doctors, patients CASCADE")
+            await db.execute(text("TRUNCATE TABLE time_slots, appointments, doctor_schedules, doctors, patients CASCADE"))
+            await db.commit()
+            print("✅ Existing data cleared")
+    
+    # Seed new data
+    print("\n🌱 Seeding new data...")
+    async with AsyncSessionLocal() as session:
         doctors = await seed_doctors(session)
         await seed_schedules(session, doctors)
         patients = await seed_patients(session)
         await seed_appointments(session, patients, doctors)
-        await seed_time_slots(session, doctors)
+        await seed_time_slots(session, doctors, days_ahead=30)
+    
+    print("\n" + "=" * 50)
+    print("✅✅✅ DATABASE SEEDING COMPLETED!")
+    print("=" * 50)
+    
+    # Print summary
+    async with AsyncSessionLocal() as session:
+        doctor_count = await session.execute(select(func.count(Doctor.id)))
+        patient_count = await session.execute(select(func.count(Patient.id)))
+        slot_count = await session.execute(select(func.count(TimeSlot.id)))
         
-    print("\n✅✅✅ Database seeding completed successfully!")
+        print(f"\n📊 Summary:")
+        print(f"   - Doctors: {doctor_count.scalar()}")
+        print(f"   - Patients: {patient_count.scalar()}")
+        print(f"   - Time Slots: {slot_count.scalar()}")
+        print(f"   - Next 30 days: {datetime.now().strftime('%Y-%m-%d')} to {(datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')}")
 
 if __name__ == "__main__":
     asyncio.run(seed_all())
