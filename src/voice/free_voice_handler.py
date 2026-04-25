@@ -67,7 +67,7 @@ class FreeVoiceHandler:
             )
 
             print(f"Intent: {intent_data}")
-
+            print(f"session: {session}")
             # intent_data = await self.llm.extract_intent(text, session.get("language", "en"))
             print("this is intent data")
             print(intent_data)
@@ -111,8 +111,11 @@ class FreeVoiceHandler:
                 intent["date"], 
                 intent["time"]
             )
+            print("availabilty completed")
+            print(available)
             if available:
                 # Book it!
+                print("now booking has started")
                 booking_result = await self._book_appointment(
                     session.get("patient_id"),
                     intent["doctor"],
@@ -176,8 +179,12 @@ class FreeVoiceHandler:
             if not doctor_obj:
                 return False
             
+            print("doctor obj")
+            print(doctor_obj)
             from datetime import datetime
             slot_time = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
+
+            print(f"this is slot time {slot_time}")
             
             slot_result = await db.execute(
                 select(TimeSlot).where(
@@ -187,21 +194,42 @@ class FreeVoiceHandler:
                 )
             )
             slot = slot_result.scalar_one_or_none()
-            
+            print("slot is ")
+            print("slot")
             return slot is not None
 
     async def _book_appointment(self, patient_id: int, doctor: str, date: str, time: str) -> dict:
         """Actually book the appointment in database"""
         async with self.db_session() as db:
-            from src.database.models import TimeSlot, Doctor, Appointment
+            from src.database.models import TimeSlot, Doctor, Appointment, Patient
             from sqlalchemy import select
             from datetime import datetime
             
             try:
+                # Check if patient exists
+                result = await db.execute(select(Patient).where(Patient.id == patient_id))
+                patient = result.scalar_one_or_none()
+                
+                if not patient:
+                    # Create dummy patient
+                    patient = Patient(
+                        id=patient_id,
+                        phone_number= f"+91327654321{patient_id}",
+                        name=f"Patient_{patient_id}",
+                        preferred_language="en",
+                        mdata={}
+                    )
+                    db.add(patient)
+                    await db.commit()
+                    await db.refresh(patient)
+                    print(f"✅ Created dummy patient: ID {patient.id}, Name: {patient.name}")
+                
+                # return patient
                 # Get doctor
                 doctor_result = await db.execute(
                     select(Doctor).where(Doctor.name == doctor)
                 )
+                
                 doctor_obj = doctor_result.scalar_one()
                  # Get slot
                 slot_time = datetime.strptime(f"{date} {time}", "%Y-%m-%d %H:%M")
@@ -225,6 +253,7 @@ class FreeVoiceHandler:
                     appointment_time=slot_time,
                     status="scheduled"
                 )
+
                 db.add(appointment)
                 await db.commit()
                 

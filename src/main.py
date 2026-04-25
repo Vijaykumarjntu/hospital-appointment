@@ -179,7 +179,7 @@ async def voice_websocket(websocket: WebSocket):
             "last_question": None # ← Remember what we asked
         },
         "history": [],           # ← Store ALL conversation
-        "patient_id": 1,
+        "patient_id": 5,
         "websocket": websocket,
         "turn_count": 0
     }
