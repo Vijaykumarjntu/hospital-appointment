@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from src.config import settings
 from src.database.connection import init_db, close_db, get_db, redis_client
-from src.database.models import Patient, Doctor
+from src.database.models import Patient, Doctor, Appointment
 from src.voice.free_voice_handler import FreeVoiceHandler
 import asyncio
 from src.outbound.scheduler import OutboundScheduler
@@ -657,6 +657,199 @@ async def doctor_slots_page(doctor_id: int):
     </html>
     """
     return HTMLResponse(content=html)
+
+
+@app.get("/doctors/{doctor_id}/booked-appointments")
+async def get_doctor_booked_appointments(doctor_id: int, db: AsyncSession = Depends(get_db)):
+    """Get all booked appointments for a specific doctor"""
+    
+    # Get doctor info
+    doctor_result = await db.execute(select(Doctor).where(Doctor.id == doctor_id))
+    doctor = doctor_result.scalar_one_or_none()
+    
+    if not doctor:
+        return {"error": "Doctor not found"}
+    
+    # Get all appointments (past and future) for this doctor
+    appointments_result = await db.execute(
+        select(Appointment, Patient)
+        .join(Patient, Appointment.patient_id == Patient.id)
+        .where(Appointment.doctor_id == doctor_id)
+        .order_by(Appointment.appointment_time.desc())
+    )
+    appointments = appointments_result.all()
+    
+    booked_slots = []
+    for apt, patient in appointments:
+        booked_slots.append({
+            "appointment_id": apt.id,
+            "patient_name": patient.name,
+            "patient_phone": patient.phone_number,
+            "datetime": apt.appointment_time.strftime("%Y-%m-%d %I:%M %p"),
+            "date": apt.appointment_time.strftime("%Y-%m-%d"),
+            "time": apt.appointment_time.strftime("%I:%M %p"),
+            "status": apt.status,
+            "created_at": apt.created_at.strftime("%Y-%m-%d %H:%M")
+        })
+    
+    return {
+        "doctor_id": doctor.id,
+        "doctor_name": doctor.name,
+        "doctor_specialization": doctor.specialization,
+        "total_appointments": len(booked_slots),
+        "appointments": booked_slots
+    }
+
+@app.get("/doctor-booked-page/{doctor_id}")
+async def doctor_booked_page(doctor_id: int):
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Doctor Appointments</title>
+        <style>
+            body {{ font-family: Arial; padding: 20px; max-width: 1200px; margin: 0 auto; }}
+            .header {{ background: #007bff; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }}
+            .stats {{ display: flex; gap: 20px; margin-bottom: 20px; }}
+            .stat-card {{ background: #f8f9fa; padding: 15px; border-radius: 10px; flex: 1; text-align: center; }}
+            .stat-number {{ font-size: 32px; font-weight: bold; color: #007bff; }}
+            .stat-label {{ color: #666; }}
+            .appointment-card {{ 
+                border: 1px solid #ddd; 
+                border-radius: 10px; 
+                padding: 15px; 
+                margin: 10px 0;
+                background: white;
+                transition: 0.3s;
+            }}
+            .appointment-card:hover {{ box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            .status-scheduled {{ border-left: 5px solid #28a745; }}
+            .status-completed {{ border-left: 5px solid #6c757d; opacity: 0.7; }}
+            .status-cancelled {{ border-left: 5px solid #dc3545; }}
+            .appointment-date {{ font-size: 18px; font-weight: bold; color: #007bff; }}
+            .appointment-time {{ font-size: 24px; font-weight: bold; margin: 5px 0; }}
+            .patient-info {{ color: #666; margin: 10px 0; }}
+            .cancel-btn {{ 
+                background: #dc3545; 
+                color: white; 
+                border: none; 
+                padding: 5px 15px; 
+                border-radius: 5px;
+                cursor: pointer;
+            }}
+            .cancel-btn:hover {{ background: #c82333; }}
+            .back-btn {{
+                background: #6c757d;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                margin-bottom: 20px;
+            }}
+        </style>
+    </head>
+    <body>
+        <button class="back-btn" onclick="window.location.href='/doctors-page'">← Back to Doctors</button>
+        <div id="content">Loading...</div>
+        
+        <script>
+            const doctor_id = {doctor_id};
+            
+            async function loadBookedAppointments() {{
+                try {{
+                    const response = await fetch(`/doctors/${{doctor_id}}/booked-appointments`);
+                    const data = await response.json();
+                    
+                    if (data.error) {{
+                        document.getElementById('content').innerHTML = `<p style="color:red">${{data.error}}</p>`;
+                        return;
+                    }}
+                    
+                    const html = `
+                        <div class="header">
+                            <h1>📋 ${{data.doctor_name}}</h1>
+                            <p>${{data.doctor_specialization}}</p>
+                        </div>
+                        
+                        <div class="stats">
+                            <div class="stat-card">
+                                <div class="stat-number">${{data.total_appointments}}</div>
+                                <div class="stat-label">Total Appointments</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${{data.appointments.filter(a => a.status === 'scheduled').length}}</div>
+                                <div class="stat-label">Upcoming</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-number">${{data.appointments.filter(a => a.status === 'completed').length}}</div>
+                                <div class="stat-label">Completed</div>
+                            </div>
+                        </div>
+                        
+                        <h2>📅 All Appointments</h2>
+                        <div id="appointments-list"></div>
+                    `;
+                    
+                    document.getElementById('content').innerHTML = html;
+                    
+                    const appointmentsDiv = document.getElementById('appointments-list');
+                    
+                    if (data.appointments.length === 0) {{
+                        appointmentsDiv.innerHTML = '<p>No appointments found for this doctor.</p>';
+                        return;
+                    }}
+                    
+                    data.appointments.forEach(apt => {{
+                        const aptDiv = document.createElement('div');
+                        aptDiv.className = `appointment-card status-${{apt.status}}`;
+                        aptDiv.innerHTML = `
+                            <div class="appointment-date">📅 ${{apt.date}}</div>
+                            <div class="appointment-time">🕐 ${{apt.time}}</div>
+                            <div class="patient-info">
+                                👤 <strong>${{apt.patient_name}}</strong><br>
+                                📞 ${{apt.patient_phone}}
+                            </div>
+                            <div>Status: <strong>${{apt.status}}</strong></div>
+                            <div style="font-size: 12px; color: #888; margin-top: 10px;">
+                                Booked on: ${{apt.created_at}}
+                            </div>
+                            ${{apt.status === 'scheduled' ? `<button class="cancel-btn" onclick="cancelAppointment(${{apt.appointment_id}})" style="margin-top: 10px;">Cancel Appointment</button>` : ''}}
+                        `;
+                        appointmentsDiv.appendChild(aptDiv);
+                    }});
+                    
+                }} catch (error) {{
+                    console.error('Error:', error);
+                    document.getElementById('content').innerHTML = `<p style="color:red">Error loading data: ${{error.message}}</p>`;
+                }}
+            }}
+            
+            async function cancelAppointment(appointmentId) {{
+                if (confirm('Are you sure you want to cancel this appointment?')) {{
+                    try {{
+                        const response = await fetch(`/api/cancel-appointment/${{appointmentId}}`, {{ method: 'DELETE' }});
+                        const data = await response.json();
+                        if (data.success) {{
+                            alert('✅ Appointment cancelled successfully!');
+                            loadBookedAppointments(); // Refresh
+                        }} else {{
+                            alert('❌ Failed to cancel: ' + data.error);
+                        }}
+                    }} catch (error) {{
+                        alert('❌ Error: ' + error.message);
+                    }}
+                }}
+            }}
+            
+            loadBookedAppointments();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
+
 # Import for type hints
 from sqlalchemy import Date
 from src.database.connection import AsyncSessionLocal
